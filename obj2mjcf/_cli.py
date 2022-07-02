@@ -15,6 +15,8 @@ import trimesh
 from lxml import etree
 from PIL import Image
 from termcolor import cprint
+import random
+random.seed(121)
 
 # Find the V-HACD v4.0 executable in the system path.
 # Note trimesh has not updated their code to work with v4.0 which is why we do not use
@@ -146,6 +148,23 @@ class Material:
             Ks = 0.5
         return f"{Ks}"
 
+def compress_texture(filepath, verbose=False):
+    # open the image
+    picture = Image.open(filepath)
+
+    picture = picture.resize((256, int(256*picture.width/picture.height)), Image.ANTIALIAS)
+
+    # Save the picture with desired quality
+    # To change the quality of image,
+    # set the quality variable at
+    # your desired level, The more
+    # the value of quality variable
+    # and lesser the compression
+    picture.save(filepath,
+                 "png",
+                 optimize=True,
+                 quality=1)
+    return
 
 def decompose_convex(filename: Path, work_dir: Path, vhacd_args: VhacdArgs) -> bool:
     if not vhacd_args.enable:
@@ -222,6 +241,14 @@ def decompose_convex(filename: Path, work_dir: Path, vhacd_args: VhacdArgs) -> b
 
     return True
 
+def random_color():
+    color = ""
+    #color = [random.uniform(0, 1) for _ in range(3)]
+    for _ in range(3):
+        color += str(random.uniform(0, 1))
+        color += " "
+    color += "1"
+    return color
 
 def process_obj(filename: Path, args: Args) -> None:
     # Create a directory with the same name as the OBJ file. The processed submeshes
@@ -285,13 +312,18 @@ def process_obj(filename: Path, args: Args) -> None:
                 texture_name = texture_path.name
                 src_filename = filename.parent / texture_path
                 if not src_filename.exists():
-                    raise RuntimeError(
-                        f"The texture file {src_filename} referenced in the MTL file "
-                        f"{mtl.name} does not exist"
-                    )
+                    try:
+                        temp = filename.parent.parent / Path('materials/textures/texture.png')
+                        shutil.copy(temp, src_filename)
+                    except:
+                        raise RuntimeError(
+                            f"The texture file {src_filename} referenced in the MTL file "
+                            f"{mtl.name} does not exist"
+                        )
                 # We want a flat directory structure in work_dir.
                 dst_filename = work_dir / texture_name
                 shutil.copy(src_filename, dst_filename)
+                #compress_texture(dst_filename)
                 # MuJoCo only supports PNG textures ¯\_(ツ)_/¯.
                 if texture_path.suffix.lower() in [".jpg", ".jpeg"]:
                     image = Image.open(dst_filename)
@@ -303,6 +335,7 @@ def process_obj(filename: Path, args: Args) -> None:
         logging.info("Done processing MTL file")
 
     logging.info("Processing OBJ file with trimesh")
+    print(filename)
     mesh = trimesh.load(
         filename,
         split_object=True,
@@ -315,7 +348,7 @@ def process_obj(filename: Path, args: Args) -> None:
 
     if isinstance(mesh, trimesh.base.Trimesh):
         # No submeshes, just save the mesh.
-        savename = str(work_dir / f"{filename.stem}.obj")
+        savename = str(work_dir / f"{filename.stem}_0.obj")
         logging.info(f"Saving mesh {savename}")
         mesh.export(savename, include_texture=True, header=None)
     else:
@@ -400,7 +433,7 @@ def process_obj(filename: Path, args: Args) -> None:
 
     # Add visual geoms.
     if isinstance(mesh, trimesh.base.Trimesh):
-        meshname = Path(f"{filename.stem}.obj")
+        meshname = Path(f"{filename.stem}_0.obj")
         # Add the mesh to assets.
         etree.SubElement(
             asset_elem,
@@ -453,6 +486,7 @@ def process_obj(filename: Path, args: Args) -> None:
                 obj_body,
                 "geom",
                 mesh=collision.stem,
+                rgba=random_color(),
                 **collision_kwargs,
             )
     else:
